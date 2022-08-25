@@ -169,18 +169,21 @@ def image_gt(json_path, file_name):
     return bbox_list, class_list, mask_list
 
 
-def combine_overlapping_mask(mask_list, merged_pairs, bbox_iou_metric, merged_index, mask_combine_threshold, mask_union_threshold):
+def combine_overlapping_mask(merged_pairs, bbox_iou_metric, merged_index, mask_combine_threshold, mask_union_threshold, folder_path):
 
-    mask = []
+
     merged_list = []
     idx_list = []
+    final_count = 0 
 
-    for i in range(len(mask_list)):
+    create_folder(os.path.join(folder_path, "final_mask" ))
+
+    for i in range(len(os.listdir(os.path.join(folder_path, "merged_mask")))):
         if i in idx_list:
             continue
         else:
 
-            temp_mask = mask_list[i]
+            temp_mask = np.load(os.path.join(folder_path,"merged_mask", str(i)+".npy"))
 
             for y in np.where(bbox_iou_metric[merged_pairs[i][0]].cpu()>0.1)[0]:
                 if y in merged_index:
@@ -190,10 +193,14 @@ def combine_overlapping_mask(mask_list, merged_pairs, bbox_iou_metric, merged_in
                         else:
                             if y in (merged_pairs[u][0], merged_pairs[u][1]):
                                 if (y,i) != (merged_pairs[u][0], merged_pairs[u][1]) or (i,y) != (merged_pairs[u][0], merged_pairs[u][1]):
-                                    iou = iou_mask(torch.as_tensor(temp_mask).cuda(), torch.as_tensor(mask_list[u]).cuda())
-                                    if iou > mask_combine_threshold or check_union((torch.as_tensor(temp_mask).cuda(), torch.as_tensor(mask_list[u]).cuda()), mask_union_threshold):
+                                    #iou = iou_mask(torch.as_tensor(temp_mask).cuda(), torch.as_tensor(mask_list[u]).cuda())
+                                    mask = np.load(os.path.join(folder_path,"merged_mask", str(u)+".npy"))
+                                    iou = iou_mask(torch.as_tensor(temp_mask).cuda(), torch.as_tensor(mask).cuda())
+                                    #if iou > mask_combine_threshold or check_union((torch.as_tensor(temp_mask).cuda(), torch.as_tensor(mask_list[u]).cuda()), mask_union_threshold):
+                                    if iou > mask_combine_threshold or check_union((torch.as_tensor(temp_mask).cuda(), torch.as_tensor(mask).cuda()), mask_union_threshold):
                                         merged_list.append((i,u))
-                                        temp_mask = (np.bitwise_or(temp_mask, mask_list[u]))
+                                      
+                                        temp_mask = (np.bitwise_or(temp_mask, mask))
                                         idx_list.append(u)
                                         idx_list.append(i)
 
@@ -205,21 +212,26 @@ def combine_overlapping_mask(mask_list, merged_pairs, bbox_iou_metric, merged_in
                         else:
                             if y in (merged_pairs[u][0], merged_pairs[u][1]):
                                 if (y,i) != (merged_pairs[u][0], merged_pairs[u][1]) or (i,y) != (merged_pairs[u][0], merged_pairs[u][1]):
-                                    iou = iou_mask(torch.as_tensor(temp_mask).cuda(), torch.as_tensor(mask_list[u]).cuda())
-                                    if iou > mask_combine_threshold or check_union((torch.as_tensor(temp_mask).cuda(), torch.as_tensor(mask_list[u]).cuda()), mask_union_threshold):
+                                    #iou = iou_mask(torch.as_tensor(temp_mask).cuda(), torch.as_tensor(mask_list[u]).cuda())
+                                    iou = iou_mask(torch.as_tensor(temp_mask).cuda(), torch.as_tensor(mask).cuda())
+                                    #if iou > mask_combine_threshold or check_union((torch.as_tensor(temp_mask).cuda(), torch.as_tensor(mask_list[u]).cuda()), mask_union_threshold):
+                                    if iou > mask_combine_threshold or check_union((torch.as_tensor(temp_mask).cuda(), torch.as_tensor(mask).cuda()), mask_union_threshold):
                                         merged_list.append((i,u))
-                                        temp_mask = (np.bitwise_or(temp_mask,mask_list[u]))
+                                 
+                                        temp_mask = (np.bitwise_or(temp_mask,mask))
                                         idx_list.append(u)
                                         idx_list.append(i)
-            mask.append(temp_mask)
+     
+            
+            np.save(os.path.join(folder_path, "final_mask", str(final_count) ), temp_mask)
+            final_count += 1
 
    
 
 
-    return mask
  
 
-def get_combined_mask(mask_list, boxes_list, mask_combine_threshold, mask_union_threshold):
+def get_combined_mask(boxes_list, mask_combine_threshold, mask_union_threshold, folder_path):
 
     structured_boxes_list= structures.Boxes(torch.as_tensor(boxes_list).cuda())
     bbox_iou_metric = structures.pairwise_iou(structured_boxes_list, structured_boxes_list)
@@ -227,6 +239,9 @@ def get_combined_mask(mask_list, boxes_list, mask_combine_threshold, mask_union_
     merged_pairs = []
     temp_mask_list = []
     merged_index = []
+    merged_count = 0 
+
+    create_folder(os.path.join(folder_path, "merged_mask"))
 
     for i in range(len(bbox_iou_metric)):
 
@@ -237,23 +252,33 @@ def get_combined_mask(mask_list, boxes_list, mask_combine_threshold, mask_union_
                     if (i, idx) in merged_pairs:
                         continue
                     else:
-                        iou = iou_mask(torch.as_tensor(mask_list[idx]).cuda(), torch.as_tensor(mask_list[i]).cuda())
-                        if iou > mask_combine_threshold or check_union((torch.as_tensor(mask_list[idx]).cuda(), torch.as_tensor(mask_list[i]).cuda()), mask_union_threshold):
+                       
+
+                        mask1 = np.load(os.path.join(folder_path, "mask_original", str(idx) + ".npy"))
+                        mask2 = np.load(os.path.join(folder_path, "mask_original", str(i) + ".npy"))
+                        iou = iou_mask(torch.as_tensor(mask1).cuda(), torch.as_tensor(mask2).cuda())
+                       
+                        if iou > mask_combine_threshold or check_union((torch.as_tensor(mask1).cuda(), torch.as_tensor(mask2).cuda()), mask_union_threshold):
+                            
                             merged_pairs.append((idx, i))
-                            temp_mask_list.append(np.bitwise_or(mask_list[i],mask_list[idx] ))
+                            np.save(os.path.join(folder_path, "merged_mask", str(merged_count)),np.bitwise_or(mask1,mask2))
+                            merged_count += 1 
                             merged_index.append(i)
                             merged_index.append(idx)
                         
 
 
-    temp_mask_list = combine_overlapping_mask(temp_mask_list, merged_pairs, bbox_iou_metric, merged_index, mask_combine_threshold, mask_union_threshold)
-
-    for i in range(len(mask_list)):
+    combine_overlapping_mask(merged_pairs, bbox_iou_metric, merged_index, mask_combine_threshold, mask_union_threshold, folder_path)
+    final_mask_count = len(os.listdir(os.path.join(folder_path, "final_mask")))
+  
+    for i in range(len(os.listdir(os.path.join(folder_path, "mask_original")))):
         if i in merged_index:
             continue
         else:
-            temp_mask_list.append(mask_list[i])
-    return temp_mask_list
+            
+            np.save(os.path.join(folder_path, "final_mask", str(final_mask_count)), np.load(os.path.join(folder_path, "mask_original", str(i) + ".npy")))
+            final_mask_count += 1
+
 
 
 def get_mask_and_bbox_batching(img, image_size, predictor, buffer_percentage, folder_path):
@@ -261,8 +286,8 @@ def get_mask_and_bbox_batching(img, image_size, predictor, buffer_percentage, fo
     create_folder(os.path.join(folder_path, "mask_original"))
     create_folder(os.path.join(folder_path, "bbox_original"))
 
-    count_boxes = 1 
-    count_mask = 1
+    count_boxes = 0
+    count_mask = 0
 
     imgwidth=img.shape[0]
     imgheight=img.shape[1]
@@ -273,7 +298,6 @@ def get_mask_and_bbox_batching(img, image_size, predictor, buffer_percentage, fo
     batched_image_width = imgwidth//split_horizontal
     batched_image_heigth = imgheight//split_verticle
 
-    mask_list = []
     boxes_list = []
 
     for i in range(split_verticle):
@@ -296,37 +320,27 @@ def get_mask_and_bbox_batching(img, image_size, predictor, buffer_percentage, fo
             
             for box in bboxs:
                 boxes_list.append([box[0]+ min_bound_x, box[1]+ min_bound_y, box[2]+ min_bound_x, box[3]+ min_bound_y])
-                with open(os.path.join(folder_path, "bbox_original", str(count_boxes) + ".txt"), 'w') as f:
-                    for box_point in box[0]+ min_bound_x, box[1]+ min_bound_y, box[2]+ min_bound_x, box[3]+ min_bound_y:
-                        f.write(str(box_point)+'\n')
-                    f.close()
-
-                count_boxes += 1
-                    
-
+               
             for mask in masks:
                 temp_mask = np.full((imgwidth, imgheight), False,  dtype=bool)
                 for true_point in list(zip(*np.where(np.array(mask.cpu()) == True))) :   
                     temp_mask[true_point[0] + min_bound_y][true_point[1] + min_bound_x]= True               
-                mask_list.append(temp_mask)
-                with open(os.path.join(folder_path, "mask_original", str(count_mask) + ".txt"), 'w') as f:
-                    for mask_point in temp_mask:
-                        f.write(str(mask_point)+'\n')
-                    f.close()
+                #mask_list.append(temp_mask)
+                np.save(os.path.join(folder_path, "mask_original", str(count_mask)),temp_mask)
                 count_mask += 1
-            #count += 1
-            
+              
     
-    return mask_list, boxes_list
+    return boxes_list
 
     
-def save_image(img, masks, savePath):
+def save_image(img, folder_path, savePath):
 
     increment = 0
     color = 30
 
-    for mask in masks:
-   
+    for file_name in os.listdir(folder_path):
+
+        mask = np.load(os.path.join(folder_path, file_name))
         img[np.array(mask)*125 == 125] = [245, 0, 0]#[color*increment, color*increment, color*increment]
         increment += 1
         if color*increment > 255 :
@@ -334,25 +348,29 @@ def save_image(img, masks, savePath):
                         
     cv2.imwrite(savePath, img)
 
-def check_overlapping(mask, mask_overlapping, remove_threshold):
+def check_overlapping(mask, mask_overlapping_path, remove_threshold):
 
-    for mask_overlap in mask_overlapping:
-    
+    for mask_overlap_file in os.listdir(os.path.join(mask_overlapping_path, "final_mask")):
+
+        mask_overlap = np.load(os.path.join(mask_overlapping_path, "final_mask",mask_overlap_file))
         if iou_mask(torch.as_tensor(mask).cuda(), torch.as_tensor(mask_overlap).cuda()) > remove_threshold:
             return False
     return True
 
-def remove_overlapping(mask_detect, mask_remove, remove_threshold):
+def remove_overlapping(mask_detect_path, mask_remove_path, remove_threshold, final_mask_path):
 
-    removed_mask = []
-    for mask in mask_detect:
-        if check_overlapping(mask, mask_remove, remove_threshold):
-            removed_mask.append(mask)
+    mask_count = 0
+    for mask_file in os.listdir(os.path.join(mask_detect_path, "final_mask")):
+        mask = np.load(os.path.join(mask_detect_path, "final_mask", mask_file))
+        if check_overlapping(mask, mask_remove_path, remove_threshold):
+            #removed_mask.append(mask)
+            np.save(os.path.join(final_mask_path, str(mask_count)), mask)
+            mask_count += 1
 
-    return removed_mask
+ 
 
 
-def get_iou(act_mask_list, pred_mask_list, iou_threshold):
+def get_iou(act_mask_list, pred_mask_path, iou_threshold):
 
     mask_iou = 0
     total_area = 0
@@ -360,7 +378,8 @@ def get_iou(act_mask_list, pred_mask_list, iou_threshold):
     for act_mask in act_mask_list:
         iou_list = []
         area_list = []
-        for pred_mask in pred_mask_list:
+        for pred_mask_file in os.listdir(pred_mask_path):
+            pred_mask = np.load(os.path.join(pred_mask_path, pred_mask_file))
             act_mask_bitMask = polygons_to_bitmask(act_mask, int(pred_mask.shape[0]), int(pred_mask.shape[1]))
             iou, area = weighted_iou(act_mask_bitMask, pred_mask)
             if iou/area > iou_threshold:

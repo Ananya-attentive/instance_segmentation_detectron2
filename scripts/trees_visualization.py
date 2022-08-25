@@ -11,15 +11,16 @@ def inference_visualization(SaveDir, JsonPath, TifPath, predictor, Image_Size, b
 
     for image in image_list(JsonPath): 
 
+        image = "1.tif"
+
   
-        #img = cv2.imread(os.path.join(TifPath, image))
-        img = cv2.imread("/home/workspace/production_data/3.tif")
+        img = cv2.imread(os.path.join(TifPath, image))
+        #img = cv2.imread("/home/workspace/production_data/6.tif")
         create_folder(os.path.join(SaveDir, "temp_folder"))
-        mask_list, boxes_list = get_mask_and_bbox_batching(img, Image_Size, predictor, buffer_percentage, os.path.join(SaveDir, "temp_folder"))
-        #exit()
-        mask = get_combined_mask(mask_list, boxes_list, mask_combine_threshold, mask_union_threshold)
-        savePath  = os.path.join(SaveDir, image[:-4] + ".png")
-        save_image(img, mask, savePath)
+        boxes_list = get_mask_and_bbox_batching(img, Image_Size, predictor, buffer_percentage, os.path.join(SaveDir, "temp_folder"))
+        get_combined_mask(boxes_list, mask_combine_threshold, mask_union_threshold, os.path.join(SaveDir, "temp_folder"))
+
+        save_image(img, os.path.join(os.path.join(SaveDir, "temp_folder"),"final_mask"), os.path.join(SaveDir, image[:-4] + ".png"))
         break
        
     print("Images Saved in " + SaveDir)

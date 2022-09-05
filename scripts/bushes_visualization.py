@@ -10,13 +10,13 @@ def inference_visualization(SaveDir, JsonPath, TifPath, predictor_remove, predic
     create_folder(SaveDir)
     for image in image_list(JsonPath): 
 
+        image = "18.tif"
         print(image)
   
         img = cv2.imread(os.path.join(TifPath, image))
         create_folder(os.path.join(SaveDir, "temp_folder_remove"))
         create_folder(os.path.join(SaveDir, "temp_folder_detect"))
         create_folder(os.path.join(SaveDir, "temp_folder_combine"))
-        #img = cv2.imread("/home/workspace/production_data/6.tif")
         boxes_list_remove = get_mask_and_bbox_batching(img, Image_Size, predictor_remove, buffer_percentage, os.path.join(SaveDir, "temp_folder_remove"))
         boxes_list_detect = get_mask_and_bbox_batching(img, Image_Size, predictor_detect, buffer_percentage, os.path.join(SaveDir, "temp_folder_detect"))
         get_combined_mask(boxes_list_remove, mask_combine_threshold, mask_union_threshold, os.path.join(SaveDir, "temp_folder_remove"))

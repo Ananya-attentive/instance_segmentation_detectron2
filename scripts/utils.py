@@ -1,3 +1,4 @@
+from xml.dom.expatbuilder import InternalSubsetExtractor
 from detectron2.data.datasets import register_coco_instances
 from detectron2.config import get_cfg
 from detectron2.engine import DefaultPredictor
@@ -9,8 +10,15 @@ import shutil
 import numpy as np
 from detectron2.data import MetadataCatalog
 from detectron2.utils.visualizer import Visualizer
+import shapely
 import torch 
+import geopandas as gpd
+from shapely.geometry import Polygon, mapping
+
 from detectron2.structures.masks import polygons_to_bitmask
+
+
+
 
 
 def register_data(JsonPath, TifPath, RegisterDataName):
@@ -53,14 +61,7 @@ def inference_image(im, PathDir, PartX, PartY, registerDataName, predictor):
     detectron2__metadata = MetadataCatalog.get(registerDataName)
     v = Visualizer(im[:, :, ::-1], metadata=detectron2__metadata, scale=0.5)
     out = v.draw_instance_predictions(outputs["instances"].to("cpu"))
-    #cv2.imwrite(os.path.join(PathDir, str(PartX) + "_" + str(PartY) +"_ML.png"),out.get_image()[:, :, ::-1])
-
     return out.get_image()[:, :, ::-1]
-
-
-
-#def inference_image(im, Pathdir, registerDataName, predictor, image_size)
-
 
 
 def inference_image_output(im,predictor):
@@ -79,8 +80,6 @@ def iou_mask(mask1, mask2):
 def weighted_iou(mask1, mask2):
 
     area = len(np.where(mask1==True)[0])
-   
-    #print(mask1.shape, mask2.shape)
     intersection = torch.logical_and(torch.as_tensor(mask2).cuda(), torch.as_tensor(mask1).cuda()).to(torch.int).sum() #(mask2 * mask1).sum()
     if intersection == 0:
         return 0.0, area #, 0 #area
@@ -92,16 +91,19 @@ def weighted_iou(mask1, mask2):
 
 def check_union(mask, mask_union_threshold):
 
-    intersection_count = torch.logical_and(mask[0], mask[1]).to(torch.int).sum() 
-    union_count = torch.logical_or(mask[0], mask[1]).to(torch.int).sum()
-    
+    intersection_count = mask[0].intersection(mask[1]).area
+    union_count = mask[0].union(mask[1]).area
+    intersection_thresh = 0.9
+
     if intersection_count == 0:
         return False
 
-    mask_union_cover_1 = len(list(zip(*np.where(mask[0].cpu() == True))))/union_count
-    mask_union_cover_2 = len(list(zip(*np.where(mask[1].cpu() == True))))/union_count
+    mask_union_cover_1 = mask[0].area/union_count
+    mask_union_cover_2 = mask[1].area/union_count
+    intersected_part1 = mask[0].area/intersection_count
+    intersected_part2 = mask[1].area/intersection_count
 
-    if mask_union_cover_1 > mask_union_threshold or mask_union_cover_2 > mask_union_threshold:
+    if mask_union_cover_1 > mask_union_threshold or mask_union_cover_2 > mask_union_threshold or intersected_part1 > intersection_thresh or intersected_part2 > intersection_thresh:
         return True
     else: 
         return False
@@ -133,11 +135,7 @@ def iou_calculation(act_bbox, pred_bbox, act_class,  pred_class, act_mask, pred_
                     Area += area
     if Area == 0:
         mask_iou = 0
-    #else:
-
-    #    mask_iou = mask_iou/Area
-    #print(mask_iou)
-    
+ 
     return act, pred, bbox_iou, bbox_iou_perClass, mask_iou, mask_iou_perClass, Area
 
 def image_gt(json_path, file_name):
@@ -178,12 +176,14 @@ def combine_overlapping_mask(merged_pairs, bbox_iou_metric, merged_index, mask_c
 
     create_folder(os.path.join(folder_path, "final_mask" ))
 
-    for i in range(len(os.listdir(os.path.join(folder_path, "merged_mask")))):
+    
+
+    for i in range(len([x for x in os.listdir(os.path.join(folder_path, "merged_mask")) if x.endswith(".shp")])):
         if i in idx_list:
             continue
         else:
 
-            temp_mask = np.load(os.path.join(folder_path,"merged_mask", str(i)+".npy"))
+            temp_mask = gpd.read_file(os.path.join(folder_path,"merged_mask", str(i)+".shp"))['geometry'][0]
 
             for y in np.where(bbox_iou_metric[merged_pairs[i][0]].cpu()>0.1)[0]:
                 if y in merged_index:
@@ -193,14 +193,11 @@ def combine_overlapping_mask(merged_pairs, bbox_iou_metric, merged_index, mask_c
                         else:
                             if y in (merged_pairs[u][0], merged_pairs[u][1]):
                                 if (y,i) != (merged_pairs[u][0], merged_pairs[u][1]) or (i,y) != (merged_pairs[u][0], merged_pairs[u][1]):
-                                    #iou = iou_mask(torch.as_tensor(temp_mask).cuda(), torch.as_tensor(mask_list[u]).cuda())
-                                    mask = np.load(os.path.join(folder_path,"merged_mask", str(u)+".npy"))
-                                    iou = iou_mask(torch.as_tensor(temp_mask).cuda(), torch.as_tensor(mask).cuda())
-                                    #if iou > mask_combine_threshold or check_union((torch.as_tensor(temp_mask).cuda(), torch.as_tensor(mask_list[u]).cuda()), mask_union_threshold):
-                                    if iou > mask_combine_threshold or check_union((torch.as_tensor(temp_mask).cuda(), torch.as_tensor(mask).cuda()), mask_union_threshold):
+                                    mask = gpd.read_file(os.path.join(folder_path,"merged_mask", str(u)+".shp"))['geometry'][0]
+                                    iou = temp_mask.intersection(mask).area/temp_mask.union(mask).area
+                                    if iou > mask_combine_threshold or check_union((temp_mask, mask), mask_union_threshold):
                                         merged_list.append((i,u))
-                                      
-                                        temp_mask = (np.bitwise_or(temp_mask, mask))
+                                        temp_mask = temp_mask.union(mask)            
                                         idx_list.append(u)
                                         idx_list.append(i)
 
@@ -212,24 +209,20 @@ def combine_overlapping_mask(merged_pairs, bbox_iou_metric, merged_index, mask_c
                         else:
                             if y in (merged_pairs[u][0], merged_pairs[u][1]):
                                 if (y,i) != (merged_pairs[u][0], merged_pairs[u][1]) or (i,y) != (merged_pairs[u][0], merged_pairs[u][1]):
-                                    #iou = iou_mask(torch.as_tensor(temp_mask).cuda(), torch.as_tensor(mask_list[u]).cuda())
-                                    iou = iou_mask(torch.as_tensor(temp_mask).cuda(), torch.as_tensor(mask).cuda())
-                                    #if iou > mask_combine_threshold or check_union((torch.as_tensor(temp_mask).cuda(), torch.as_tensor(mask_list[u]).cuda()), mask_union_threshold):
-                                    if iou > mask_combine_threshold or check_union((torch.as_tensor(temp_mask).cuda(), torch.as_tensor(mask).cuda()), mask_union_threshold):
+                                    mask = gpd.read_file(os.path.join(folder_path,"merged_mask", str(u)+".shp"))['geometry'][0]
+                                    iou = temp_mask.intersection(mask).area/temp_mask.union(mask).area
+                                    if iou > mask_combine_threshold or check_union((temp_mask, mask), mask_union_threshold):
                                         merged_list.append((i,u))
-                                 
-                                        temp_mask = (np.bitwise_or(temp_mask,mask))
+                                        temp_mask = temp_mask.union(mask) 
                                         idx_list.append(u)
                                         idx_list.append(i)
      
-            
-            np.save(os.path.join(folder_path, "final_mask", str(final_count) ), temp_mask)
+            grid = gpd.GeoDataFrame()
+            grid['geometry'] = [temp_mask]
+            grid.to_file(os.path.join(folder_path, "final_mask", str(final_count))+".shp")       
             final_count += 1
+            
 
-   
-
-
- 
 
 def get_combined_mask(boxes_list, mask_combine_threshold, mask_union_threshold, folder_path):
 
@@ -237,7 +230,6 @@ def get_combined_mask(boxes_list, mask_combine_threshold, mask_union_threshold, 
     bbox_iou_metric = structures.pairwise_iou(structured_boxes_list, structured_boxes_list)
 
     merged_pairs = []
-    temp_mask_list = []
     merged_index = []
     merged_count = 0 
 
@@ -254,39 +246,76 @@ def get_combined_mask(boxes_list, mask_combine_threshold, mask_union_threshold, 
                     else:
                        
 
-                        mask1 = np.load(os.path.join(folder_path, "mask_original", str(idx) + ".npy"))
-                        mask2 = np.load(os.path.join(folder_path, "mask_original", str(i) + ".npy"))
-                        iou = iou_mask(torch.as_tensor(mask1).cuda(), torch.as_tensor(mask2).cuda())
-                       
-                        if iou > mask_combine_threshold or check_union((torch.as_tensor(mask1).cuda(), torch.as_tensor(mask2).cuda()), mask_union_threshold):
-                            
+                        mask1 = gpd.read_file(os.path.join(folder_path, "mask_original", str(idx) + ".shp"))['geometry'][0].buffer(0)
+                        mask2 = gpd.read_file(os.path.join(folder_path, "mask_original", str(i) + ".shp"))['geometry'][0].buffer(0)
+                      
+                        iou = mask2.intersection(mask1).area/mask1.union(mask2).area  
+                        
+                        if iou > mask_combine_threshold or check_union((mask1, mask2), mask_union_threshold):
+
                             merged_pairs.append((idx, i))
-                            np.save(os.path.join(folder_path, "merged_mask", str(merged_count)),np.bitwise_or(mask1,mask2))
+                            grid = gpd.GeoDataFrame()
+                            grid['geometry'] = [mask2.union(mask1)]       
+                            grid.to_file(os.path.join(os.path.join(folder_path, "merged_mask", str(merged_count)+".shp")))
                             merged_count += 1 
                             merged_index.append(i)
                             merged_index.append(idx)
+    
                         
 
-
+    
     combine_overlapping_mask(merged_pairs, bbox_iou_metric, merged_index, mask_combine_threshold, mask_union_threshold, folder_path)
-    final_mask_count = len(os.listdir(os.path.join(folder_path, "final_mask")))
+    
+    final_mask_count = len([x for x in os.listdir(os.path.join(folder_path, "final_mask")) if x.endswith(".shp")])
+    
   
-    for i in range(len(os.listdir(os.path.join(folder_path, "mask_original")))):
+    for i in range(len([x for x in os.listdir(os.path.join(folder_path, "mask_original")) if x.endswith(".shp")])):
         if i in merged_index:
             continue
         else:
-            
-            np.save(os.path.join(folder_path, "final_mask", str(final_mask_count)), np.load(os.path.join(folder_path, "mask_original", str(i) + ".npy")))
-            final_mask_count += 1
 
+            grid = gpd.GeoDataFrame()
+            grid['geometry'] = [gpd.read_file(os.path.join(folder_path, "mask_original", str(i) + ".shp"))['geometry'][0]] 
+            grid.to_file(os.path.join(os.path.join(folder_path, "final_mask", str(final_mask_count)+".shp")))
+            final_mask_count += 1
+    
+
+def batch_images(img, buffer_percentage):
+
+    imgwidth=img.shape[0]
+    imgheight=img.shape[1]
+
+    split_horizontal = 10
+    split_verticle = 10
+
+    batched_image_width = imgwidth//split_horizontal
+    batched_image_heigth = imgheight//split_verticle
+
+    images = []
+
+    for i in range(split_verticle):
+        for j in range(split_horizontal):
+
+            buffer_min_x = 0 if i == 0 else batched_image_heigth/int(100/buffer_percentage)
+            buffer_min_y = 0 if j == 0 else batched_image_width/int(100/buffer_percentage)
+            buffer_max_y = batched_image_width/int(100/buffer_percentage)
+            buffer_max_x = batched_image_heigth/int(100/buffer_percentage)
+        
+            min_bound_x = int(i*batched_image_heigth - buffer_min_x)
+            min_bound_y = int(j*batched_image_width- buffer_min_y)
+            max_bound_x = imgheight if split_verticle - 1 == i else int(batched_image_heigth*(i+1) + buffer_max_x)
+            max_bound_y = imgwidth if split_horizontal - 1 == j else int(batched_image_width*(j+1) + buffer_max_y)
+
+            batched_image = img[min_bound_y: max_bound_y, min_bound_x:max_bound_x]
+            images.append([batched_image, [min_bound_y, min_bound_x], [i,j]])
+    
+    return images
 
 
 def get_mask_and_bbox_batching(img, image_size, predictor, buffer_percentage, folder_path):
 
     create_folder(os.path.join(folder_path, "mask_original"))
-    create_folder(os.path.join(folder_path, "bbox_original"))
-
-    count_boxes = 0
+    create_folder(os.path.join(folder_path, "mask_original_image"))
     count_mask = 0
 
     imgwidth=img.shape[0]
@@ -317,18 +346,32 @@ def get_mask_and_bbox_batching(img, image_size, predictor, buffer_percentage, fo
             batched_prediction = predictor(batched_image)
             masks = batched_prediction["instances"].pred_masks
             bboxs = batched_prediction["instances"].pred_boxes
+
             
             for box in bboxs:
                 boxes_list.append([box[0]+ min_bound_x, box[1]+ min_bound_y, box[2]+ min_bound_x, box[3]+ min_bound_y])
-               
+            
             for mask in masks:
-                temp_mask = np.full((imgwidth, imgheight), False,  dtype=bool)
+                temp_mask = np.full((imgwidth, imgheight), 0,  dtype=int)
                 for true_point in list(zip(*np.where(np.array(mask.cpu()) == True))) :   
-                    temp_mask[true_point[0] + min_bound_y][true_point[1] + min_bound_x]= True               
-                #mask_list.append(temp_mask)
-                np.save(os.path.join(folder_path, "mask_original", str(count_mask)),temp_mask)
+                    temp_mask[true_point[0] + min_bound_y][true_point[1] + min_bound_x]= 254
+
+                temp_mask = temp_mask.astype(np.uint8)
+                ret, thresh = cv2.threshold(temp_mask, 240, 255, cv2.THRESH_BINARY)
+                cnts,hierarchy = cv2.findContours(thresh, cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
+                areas = [cv2.contourArea(c) for c in cnts]
+                max_index = np.argmax(areas)
+                cnt=cnts[max_index]
+
+                polygon = []
+                for points in cnt:
+                    polygon.append((points[0][0], points[0][1]))
+            
+                grid = gpd.GeoDataFrame()
+                grid['geometry'] = [Polygon(polygon)]
+                grid.to_file(os.path.join(os.path.join(folder_path, "mask_original", str(count_mask)+".shp")))
                 count_mask += 1
-              
+                
     
     return boxes_list
 
@@ -338,33 +381,64 @@ def save_image(img, folder_path, savePath):
     increment = 0
     color = 30
 
-    for file_name in os.listdir(folder_path):
+    shp_file = [x for x in os.listdir(folder_path) if x.endswith(".shp")]
 
-        mask = np.load(os.path.join(folder_path, file_name))
-        img[np.array(mask)*125 == 125] = [245, 0, 0]#[color*increment, color*increment, color*increment]
+    for file_name in shp_file:
+
+        mask = gpd.read_file(os.path.join(folder_path, file_name))['geometry'][0]
+
+        if type(mask) == shapely.geometry.multipolygon.MultiPolygon:
+            for poly in mask:
+
+                points = []
+                for pnts in mapping(poly)['coordinates'][0]:
+                        points.append((int(pnts[0]),int(pnts[1])))
+                
+                points = np.array(points)
+                points = points.reshape((-1, 1, 2))
+                img = cv2.fillPoly(img, [points],[color*increment, color*increment, color*increment]) 
+     
+               
+        elif type(mask) == shapely.geometry.polygon.Polygon:
+           
+            points = []
+            for pnts in mapping(mask)['coordinates'][0]:
+                    points.append((int(pnts[0]),int(pnts[1])))
+            
+            points = np.array(points)
+            points = points.reshape((-1, 1, 2))
+            img = cv2.fillPoly(img, [points],[color*increment, color*increment, color*increment]) 
+     
         increment += 1
         if color*increment > 255 :
             increment = 0 
                         
     cv2.imwrite(savePath, img)
+  
 
 def check_overlapping(mask, mask_overlapping_path, remove_threshold):
 
-    for mask_overlap_file in os.listdir(os.path.join(mask_overlapping_path, "final_mask")):
+    for mask_overlap_file in [x for x in os.listdir(os.path.join(mask_overlapping_path, "final_mask")) if x.endswith(".shp")]:
 
-        mask_overlap = np.load(os.path.join(mask_overlapping_path, "final_mask",mask_overlap_file))
-        if iou_mask(torch.as_tensor(mask).cuda(), torch.as_tensor(mask_overlap).cuda()) > remove_threshold:
+        mask_overlap = gpd.read_file(os.path.join(mask_overlapping_path, "final_mask",mask_overlap_file))['geometry'][0]
+
+        iou = mask_overlap.intersection(mask).area/mask_overlap.union(mask).area
+        if  iou > remove_threshold:
             return False
     return True
 
 def remove_overlapping(mask_detect_path, mask_remove_path, remove_threshold, final_mask_path):
 
     mask_count = 0
-    for mask_file in os.listdir(os.path.join(mask_detect_path, "final_mask")):
-        mask = np.load(os.path.join(mask_detect_path, "final_mask", mask_file))
+ 
+    for mask_file in [x for x in os.listdir(os.path.join(mask_detect_path, "final_mask")) if x.endswith(".shp")]:
+        mask = gpd.read_file(os.path.join(mask_detect_path, "final_mask", mask_file))['geometry'][0]
+       
         if check_overlapping(mask, mask_remove_path, remove_threshold):
-            #removed_mask.append(mask)
-            np.save(os.path.join(final_mask_path, str(mask_count)), mask)
+            grid = gpd.GeoDataFrame()
+            grid['geometry'] = [mask]     
+            grid.to_file(os.path.join(final_mask_path, str(mask_count))+ ".shp")
+            
             mask_count += 1
 
  

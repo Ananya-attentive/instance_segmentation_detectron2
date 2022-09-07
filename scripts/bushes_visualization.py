@@ -1,29 +1,49 @@
 import os
 import cv2
 import warnings 
-from utils import get_predictor, image_list, create_folder, get_mask_and_bbox_batching, save_image, get_combined_mask, remove_overlapping
+from utils import get_predictor, image_list, create_folder, get_mask_and_bbox_after_batching, save_image, get_combined_mask, remove_overlapping
 warnings.filterwarnings("ignore")
 
                              
 def inference_visualization(SaveDir, JsonPath, TifPath, predictor_remove, predictor_detect, Image_Size, buffer_percentage, mask_combine_threshold, mask_union_threshold,remove_threshold):
 
     create_folder(SaveDir)
+    create_folder(os.path.join(SaveDir, "tmp_greenery"))
+    create_folder(os.path.join(SaveDir, "tmp_trees"))
+    create_folder(os.path.join(SaveDir, "tmp_combined"))
+    
+    
     for image in image_list(JsonPath): 
 
         image = "18.tif"
-        print(image)
-  
         img = cv2.imread(os.path.join(TifPath, image))
-        create_folder(os.path.join(SaveDir, "temp_folder_remove"))
-        create_folder(os.path.join(SaveDir, "temp_folder_detect"))
-        create_folder(os.path.join(SaveDir, "temp_folder_combine"))
-        boxes_list_remove = get_mask_and_bbox_batching(img, Image_Size, predictor_remove, buffer_percentage, os.path.join(SaveDir, "temp_folder_remove"))
-        boxes_list_detect = get_mask_and_bbox_batching(img, Image_Size, predictor_detect, buffer_percentage, os.path.join(SaveDir, "temp_folder_detect"))
-        get_combined_mask(boxes_list_remove, mask_combine_threshold, mask_union_threshold, os.path.join(SaveDir, "temp_folder_remove"))
-        get_combined_mask(boxes_list_detect, mask_combine_threshold, mask_union_threshold, os.path.join(SaveDir, "temp_folder_detect"))
-        remove_overlapping(os.path.join(SaveDir, "temp_folder_detect"), os.path.join(SaveDir, "temp_folder_remove"), remove_threshold, os.path.join(SaveDir, "temp_folder_combine"))
-        savePath  = os.path.join(SaveDir, image[:-4] + ".png")
-        save_image(img, os.path.join(SaveDir, "temp_folder_combine"), savePath)
+        
+        
+        boxes_list_trees = get_mask_and_bbox_after_batching(img, Image_Size, predictor_remove, buffer_percentage, os.path.join(SaveDir, "tmp_trees"))
+        boxes_list_greenery = get_mask_and_bbox_after_batching(img, Image_Size, predictor_detect, buffer_percentage, os.path.join(SaveDir, "tmp_greenery"))
+        
+        
+        import time
+        t1 = time.time()
+        get_combined_mask(boxes_list_trees, mask_combine_threshold, mask_union_threshold, os.path.join(SaveDir, "tmp_trees"))
+        t2 = time.time()
+        print(t2-t1)
+        
+        t3 = time.time()
+        get_combined_mask(boxes_list_greenery, mask_combine_threshold, mask_union_threshold, os.path.join(SaveDir, "tmp_greenery"))
+        t4 = time.time()
+        print(t4-t3)
+        
+        remove_overlapping(os.path.join(SaveDir, "tmp_greenery"), os.path.join(SaveDir, "tmp_trees"), remove_threshold, os.path.join(SaveDir, "tmp_combined"))
+        t6 = time.time()
+        print(t6-t4)
+        
+        
+        t7 = time.time()
+        print(t7-t6)
+        
+        savePath  = os.path.join(SaveDir, image.replace('.tif', '.png'))
+        save_image(img, os.path.join(SaveDir, "tmp_combined"), savePath)
         break
        
     print("Images Saved in " + SaveDir)
@@ -31,13 +51,13 @@ def inference_visualization(SaveDir, JsonPath, TifPath, predictor_remove, predic
 
 if __name__ == "__main__":
       
-    save_dir = "/home/workspace/DataVisualization/Bushes_data_batched_analysis"
-    tif_path = "/home/workspace/bushes/batched_tif"
+    tif_path = "/home/amit/Desktop/task_76_shrubs_integration/instance_segmentation_detectron2/bushes_tif/batched_tif"
+    save_dir = "/home/amit/Desktop/task_76_shrubs_integration/instance_segmentation_detectron2/z1"
     image_size = 512
-    json_path = "/home/workspace/bushes/bushes_train.json"
-    weight_path_remove = "/home/workspace/detectron2/detectron2/output_tree_train/model_0056699.pth"
-    weight_path_detect = "/home/workspace/detectron2/detectron2/output_combine/model_0022771.pth"
-    config_path = "/home/workspace/detectron2/detectron2/configs/COCO-InstanceSegmentation/mask_rcnn_R_101_FPN_3x.yaml"
+    json_path = "/home/amit/Desktop/task_76_shrubs_integration/instance_segmentation_detectron2/bushes_test.json"
+    weight_path_remove = "/home/amit/Desktop/task_76_shrubs_integration/instance_segmentation_detectron2/tree.pth"
+    weight_path_detect = "/home/amit/Desktop/task_76_shrubs_integration/instance_segmentation_detectron2/combine.pth"
+    config_path = "/home/amit/Desktop/task_76_shrubs_integration/instance_segmentation_detectron2/configs/COCO-InstanceSegmentation/mask_rcnn_R_101_FPN_3x.yaml"
     buffer_percentage = 12.5
     threshold_roiHead = 0.7
     threshold_retinanet = 0.7

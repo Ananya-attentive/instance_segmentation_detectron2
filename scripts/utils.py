@@ -17,6 +17,13 @@ from shapely.geometry import Polygon, mapping
 
 from detectron2.structures.masks import polygons_to_bitmask
 
+import sys
+from qgis.core import QgsApplication
+from qgis.analysis import QgsNativeAlgorithms
+QgsApplication.setPrefixPath('/usr', True) #for avoiding "Application path not initialized"
+sys.path.append('/usr/share/qgis/python/plugins')
+import processing
+QgsApplication.processingRegistry().addProvider(QgsNativeAlgorithms())
 
 
 
@@ -29,7 +36,8 @@ def register_data(JsonPath, TifPath, RegisterDataName):
 def create_folder(SaveDir):
     
     if os.path.exists(SaveDir):
-            shutil.rmtree(SaveDir)
+        shutil.rmtree(SaveDir)
+            
     os.makedirs(SaveDir)
 
 
@@ -169,22 +177,22 @@ def image_gt(json_path, file_name):
 
 def combine_overlapping_mask(merged_pairs, bbox_iou_metric, merged_index, mask_combine_threshold, mask_union_threshold, folder_path):
 
-
     merged_list = []
     idx_list = []
     final_count = 0 
-
-    create_folder(os.path.join(folder_path, "final_mask" ))
-
     
-
-    for i in range(len([x for x in os.listdir(os.path.join(folder_path, "merged_mask")) if x.endswith(".shp")])):
+    mask_gdf = gpd.read_file(os.path.join(folder_path, "merged_mask.geojson"))
+    
+    geometries = []
+    mask_ids = []
+    
+    for i in range(mask_gdf.shape[0]):
         if i in idx_list:
             continue
         else:
-
-            temp_mask = gpd.read_file(os.path.join(folder_path,"merged_mask", str(i)+".shp"))['geometry'][0]
-
+            temp_mask = list(mask_gdf[mask_gdf['mask_id']==i]['geometry'])[0]
+            
+            
             for y in np.where(bbox_iou_metric[merged_pairs[i][0]].cpu()>0.1)[0]:
                 if y in merged_index:
                     for u in range(len(merged_pairs)):
@@ -193,7 +201,8 @@ def combine_overlapping_mask(merged_pairs, bbox_iou_metric, merged_index, mask_c
                         else:
                             if y in (merged_pairs[u][0], merged_pairs[u][1]):
                                 if (y,i) != (merged_pairs[u][0], merged_pairs[u][1]) or (i,y) != (merged_pairs[u][0], merged_pairs[u][1]):
-                                    mask = gpd.read_file(os.path.join(folder_path,"merged_mask", str(u)+".shp"))['geometry'][0]
+                                    mask = list(mask_gdf[mask_gdf['mask_id']==u]['geometry'])[0] 
+                                    
                                     iou = temp_mask.intersection(mask).area/temp_mask.union(mask).area
                                     if iou > mask_combine_threshold or check_union((temp_mask, mask), mask_union_threshold):
                                         merged_list.append((i,u))
@@ -209,7 +218,7 @@ def combine_overlapping_mask(merged_pairs, bbox_iou_metric, merged_index, mask_c
                         else:
                             if y in (merged_pairs[u][0], merged_pairs[u][1]):
                                 if (y,i) != (merged_pairs[u][0], merged_pairs[u][1]) or (i,y) != (merged_pairs[u][0], merged_pairs[u][1]):
-                                    mask = gpd.read_file(os.path.join(folder_path,"merged_mask", str(u)+".shp"))['geometry'][0]
+                                    mask = list(mask_gdf[mask_gdf['mask_id']==u]['geometry'])[0]
                                     iou = temp_mask.intersection(mask).area/temp_mask.union(mask).area
                                     if iou > mask_combine_threshold or check_union((temp_mask, mask), mask_union_threshold):
                                         merged_list.append((i,u))
@@ -217,67 +226,83 @@ def combine_overlapping_mask(merged_pairs, bbox_iou_metric, merged_index, mask_c
                                         idx_list.append(u)
                                         idx_list.append(i)
      
-            grid = gpd.GeoDataFrame()
-            grid['geometry'] = [temp_mask]
-            grid.to_file(os.path.join(folder_path, "final_mask", str(final_count))+".shp")       
+     
+            geometries.append(temp_mask)
+            mask_ids.append(final_count)
             final_count += 1
             
-
+    grid = gpd.GeoDataFrame()
+    grid['geometry'] = geometries
+    grid['mask_id'] = mask_ids
+    grid.to_file(os.path.join(folder_path, "final_mask.geojson"), driver='GeoJSON')  
+    return grid 
+            
 
 def get_combined_mask(boxes_list, mask_combine_threshold, mask_union_threshold, folder_path):
-
+    
     structured_boxes_list= structures.Boxes(torch.as_tensor(boxes_list).cuda())
     bbox_iou_metric = structures.pairwise_iou(structured_boxes_list, structured_boxes_list)
-
+            
     merged_pairs = []
     merged_index = []
     merged_count = 0 
 
-    create_folder(os.path.join(folder_path, "merged_mask"))
+    mask_df = gpd.read_file(os.path.join(folder_path, "mask_original.geojson"))
+
+    geometries = []
+    mask_ids = []
 
     for i in range(len(bbox_iou_metric)):
 
         idx_list = np.where(bbox_iou_metric[i].cpu()>0)[0]
+        
         if len(idx_list)>1:
             for idx in idx_list:
                 if i != idx:
                     if (i, idx) in merged_pairs:
                         continue
                     else:
-                       
-
-                        mask1 = gpd.read_file(os.path.join(folder_path, "mask_original", str(idx) + ".shp"))['geometry'][0].buffer(0)
-                        mask2 = gpd.read_file(os.path.join(folder_path, "mask_original", str(i) + ".shp"))['geometry'][0].buffer(0)
+                        mask1 = list(mask_df[mask_df['mask_id']==idx]['geometry'])[0].buffer(0)
+                        mask2 = list(mask_df[mask_df['mask_id']==i]['geometry'])[0].buffer(0)
                       
                         iou = mask2.intersection(mask1).area/mask1.union(mask2).area  
                         
                         if iou > mask_combine_threshold or check_union((mask1, mask2), mask_union_threshold):
-
+                            
                             merged_pairs.append((idx, i))
-                            grid = gpd.GeoDataFrame()
-                            grid['geometry'] = [mask2.union(mask1)]       
-                            grid.to_file(os.path.join(os.path.join(folder_path, "merged_mask", str(merged_count)+".shp")))
+                            geometries.append(mask2.union(mask1))
+                            mask_ids.append(merged_count)
+                            
                             merged_count += 1 
                             merged_index.append(i)
                             merged_index.append(idx)
     
-                        
+    grid = gpd.GeoDataFrame()
+    grid['geometry'] = geometries  
+    grid['mask_id'] = mask_ids     
+    grid.to_file(os.path.join(folder_path, "merged_mask.geojson"), driver='GeoJSON')
+    
+    final_mask = combine_overlapping_mask(merged_pairs, bbox_iou_metric, merged_index, mask_combine_threshold, mask_union_threshold, folder_path)
+    final_mask_count = final_mask.shape[0]   
 
-    
-    combine_overlapping_mask(merged_pairs, bbox_iou_metric, merged_index, mask_combine_threshold, mask_union_threshold, folder_path)
-    
-    final_mask_count = len([x for x in os.listdir(os.path.join(folder_path, "final_mask")) if x.endswith(".shp")])
-    
+    mask_original_gdf = gpd.read_file(os.path.join(folder_path, "mask_original.geojson"))
   
-    for i in range(len([x for x in os.listdir(os.path.join(folder_path, "mask_original")) if x.endswith(".shp")])):
+    geometries = []
+    mask_ids = []
+  
+    for i in range(mask_original_gdf.shape[0]):
         if i in merged_index:
             continue
         else:
-
-            grid = gpd.GeoDataFrame()
-            grid['geometry'] = [gpd.read_file(os.path.join(folder_path, "mask_original", str(i) + ".shp"))['geometry'][0]] 
-            grid.to_file(os.path.join(os.path.join(folder_path, "final_mask", str(final_mask_count)+".shp")))
+            geometry = list(mask_original_gdf[mask_original_gdf['mask_id']==i]['geometry'])[0]
+            geometries.append(geometry)
+            mask_ids.append(final_mask_count)
             final_mask_count += 1
+    
+    final_mask_gdf = gpd.GeoDataFrame()
+    final_mask_gdf['geometry'] = geometries
+    final_mask_gdf['mask_id'] = mask_ids
+    final_mask_gdf.to_file(os.path.join(folder_path, "final_mask.geojson"), driver='GeoJSON')
     
 
 def batch_images(img, buffer_percentage):
@@ -312,11 +337,14 @@ def batch_images(img, buffer_percentage):
     return images
 
 
-def get_mask_and_bbox_batching(img, image_size, predictor, buffer_percentage, folder_path):
+def swap_xy(input_path, output_path):
+    processing.run("native:swapxy", {'INPUT':input_path,'OUTPUT':output_path})
+   
+def rotate(input_path, output_path, angle):   
+    processing.run("native:affinetransform", {'INPUT':input_path,'DELTA_X':0,'DELTA_Y':0,'DELTA_Z':0,'DELTA_M':0,'SCALE_X':1,'SCALE_Y':1,'SCALE_Z':1,'SCALE_M':1,'ROTATION_Z':angle,'OUTPUT':output_path})
 
-    create_folder(os.path.join(folder_path, "mask_original"))
-    create_folder(os.path.join(folder_path, "mask_original_image"))
-    count_mask = 0
+
+def get_mask_and_bbox_after_batching(img, image_size, predictor, buffer_percentage, folder_path):
 
     imgwidth=img.shape[0]
     imgheight=img.shape[1]
@@ -328,6 +356,10 @@ def get_mask_and_bbox_batching(img, image_size, predictor, buffer_percentage, fo
     batched_image_heigth = imgheight//split_verticle
 
     boxes_list = []
+    geometries = []
+    mask_ids = []
+    mask_id = 0
+    
 
     for i in range(split_verticle):
         for j in range(split_horizontal):
@@ -367,11 +399,20 @@ def get_mask_and_bbox_batching(img, image_size, predictor, buffer_percentage, fo
                 for points in cnt:
                     polygon.append((points[0][0], points[0][1]))
             
-                grid = gpd.GeoDataFrame()
-                grid['geometry'] = [Polygon(polygon)]
-                grid.to_file(os.path.join(os.path.join(folder_path, "mask_original", str(count_mask)+".shp")))
-                count_mask += 1
-                
+                geometry = Polygon(polygon).buffer(0)
+                geometries.append(geometry)
+                mask_ids.append(mask_id)
+            
+                mask_id += 1
+    
+    gdf = gpd.GeoDataFrame()
+    gdf['geometry'] = geometries
+    gdf['mask_id'] = mask_ids
+    out_path = os.path.join(folder_path, "mask_original_non_aligned.geojson")
+    gdf.to_file(out_path, driver='GeoJSON')
+    
+    gdf['geometry'] = gdf['geometry'].apply(lambda x: shapely.affinity.scale(x, yfact = -1, origin = (1, 0)))
+    gdf.to_file(os.path.join(folder_path, "mask_original.geojson"), driver='GeoJSON')
     
     return boxes_list
 
@@ -381,7 +422,7 @@ def save_image(img, folder_path, savePath):
     increment = 0
     color = 30
 
-    shp_file = [x for x in os.listdir(folder_path) if x.endswith(".shp")]
+    shp_file = [x for x in os.listdir(folder_path) if x.endswith(".geojson")]
 
     for file_name in shp_file:
 
@@ -417,31 +458,67 @@ def save_image(img, folder_path, savePath):
   
 
 def check_overlapping(mask, mask_overlapping_path, remove_threshold):
+    final_mask_gdf = gpd.read_file(os.path.join(mask_overlapping_path, "final_mask.geojson"))
 
-    for mask_overlap_file in [x for x in os.listdir(os.path.join(mask_overlapping_path, "final_mask")) if x.endswith(".shp")]:
-
-        mask_overlap = gpd.read_file(os.path.join(mask_overlapping_path, "final_mask",mask_overlap_file))['geometry'][0]
-
-        iou = mask_overlap.intersection(mask).area/mask_overlap.union(mask).area
-        if  iou > remove_threshold:
+    for final_mask in list(final_mask_gdf['geometry']):
+        i = final_mask.intersection(mask).area
+        u = final_mask.union(mask).area
+        
+        
+        if  u!=0 and i/u > remove_threshold :
             return False
+        
     return True
 
-def remove_overlapping(mask_detect_path, mask_remove_path, remove_threshold, final_mask_path):
 
+def remove_overlapping(mask_detect_path, mask_remove_path, remove_threshold, final_mask_path):
+    
     mask_count = 0
- 
-    for mask_file in [x for x in os.listdir(os.path.join(mask_detect_path, "final_mask")) if x.endswith(".shp")]:
-        mask = gpd.read_file(os.path.join(mask_detect_path, "final_mask", mask_file))['geometry'][0]
-       
+    
+    mask_gdf = gpd.read_file(os.path.join(mask_detect_path, "final_mask.geojson"))
+    
+    geometries = []
+    mask_ids = []
+    
+    for mask in list(mask_gdf['geometry']):
+        # mask = gpd.read_file(os.path.join(mask_detect_path, "final_mask", mask_file))['geometry'][0]
+        
         if check_overlapping(mask, mask_remove_path, remove_threshold):
-            grid = gpd.GeoDataFrame()
-            grid['geometry'] = [mask]     
-            grid.to_file(os.path.join(final_mask_path, str(mask_count))+ ".shp")
-            
+            geometries.append(mask)
+            mask_ids.append(mask_count)
             mask_count += 1
 
- 
+    final_mask_gdf = gpd.GeoDataFrame()
+    final_mask_gdf['geometry'] = geometries
+    final_mask_gdf['mask_id']=  mask_ids
+    final_mask_gdf.to_file(os.path.join(final_mask_path, f'very_final_mask.geojson'), driver='GeoJSON')
+
+# def get_iou(act_mask_list, pred_mask_path, iou_threshold):
+
+#     mask_iou = 0
+#     total_area = 0
+#     pred_count = 0
+#     for act_mask in act_mask_list:
+#         iou_list = []
+#         area_list = []
+#         for pred_mask_file in os.listdir(pred_mask_path):
+           
+#             pred_mask = np.load(os.path.join(pred_mask_path, pred_mask_file))
+#             act_mask_bitMask = polygons_to_bitmask(act_mask, int(pred_mask.shape[0]), int(pred_mask.shape[1]))
+#             iou, area = weighted_iou(act_mask_bitMask, pred_mask)
+#             if iou/area > iou_threshold:
+#                 iou_list.append(iou/area)
+#                 area_list.append(area)
+
+
+#         if len(iou_list)> 0 : 
+#             mask_iou += max(iou_list)*area_list[iou_list.index(max(iou_list))]
+#             total_area += area_list[iou_list.index(max(iou_list))]
+#             if max(iou_list) > 0:
+#                 pred_count += 1
+
+    
+#     return  pred_count, mask_iou, total_area
 
 
 def get_iou(act_mask_list, pred_mask_path, iou_threshold):
@@ -449,10 +526,15 @@ def get_iou(act_mask_list, pred_mask_path, iou_threshold):
     mask_iou = 0
     total_area = 0
     pred_count = 0
+    
+    print(act_mask_list)
+    exit()
+    
     for act_mask in act_mask_list:
         iou_list = []
         area_list = []
         for pred_mask_file in os.listdir(pred_mask_path):
+            
             pred_mask = np.load(os.path.join(pred_mask_path, pred_mask_file))
             act_mask_bitMask = polygons_to_bitmask(act_mask, int(pred_mask.shape[0]), int(pred_mask.shape[1]))
             iou, area = weighted_iou(act_mask_bitMask, pred_mask)

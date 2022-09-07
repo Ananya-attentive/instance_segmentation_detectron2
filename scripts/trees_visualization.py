@@ -25,7 +25,7 @@ def inference_visualization(SaveDir, JsonPath, TifPath, predictor, Image_Size, b
 
         image = "4.tif"
  
-        print(image)
+        
         t1 = time.time()
         img = cv2.imread(os.path.join(Production_properties, image))
         create_folder(os.path.join(SaveDir, "temp_folder"))
@@ -33,7 +33,7 @@ def inference_visualization(SaveDir, JsonPath, TifPath, predictor, Image_Size, b
         get_combined_mask(boxes_list, mask_combine_threshold, mask_union_threshold, os.path.join(SaveDir, "temp_folder"))
         save_image(img, os.path.join(SaveDir, "temp_folder","final_mask"), os.path.join(image_file, image[:-4] + ".png"))
         t2 = time.time()
-        print(t2-t1)
+        
         break
        
     print("Images Saved in " + SaveDir)

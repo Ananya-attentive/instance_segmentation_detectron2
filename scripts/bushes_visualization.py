@@ -6,7 +6,7 @@ from utils import get_predictor, image_list, create_folder, get_mask_and_bbox_af
 warnings.filterwarnings("ignore")
 
                              
-def inference_visualization(output_dir, json_path, tifs_path,  predictor_vegetation, predictor_tree, image_size, buffer_percentage, mask_combine_threshold, mask_union_threshold, remove_threshold):
+def inference_visualization(output_dir, tifs_dir, json_path, predictor_vegetation, predictor_tree, image_size, buffer_percentage, mask_combine_threshold, mask_union_threshold, remove_threshold):
     
     create_folder(output_dir)
     create_folder(os.path.join(output_dir, "vegetation"))
@@ -17,7 +17,7 @@ def inference_visualization(output_dir, json_path, tifs_path,  predictor_vegetat
     for image in image_list(json_path): 
 
         image = "18.tif"
-        img = cv2.imread(os.path.join(tifs_path, image))
+        img = cv2.imread(os.path.join(tifs_dir, image))
         
         
         t1 = time.time()
@@ -59,7 +59,7 @@ def inference_visualization(output_dir, json_path, tifs_path,  predictor_vegetat
 
 if __name__ == "__main__":
       
-    tifs_path = "/home/amit/Desktop/task_76_shrubs_integration/instance_segmentation_detectron2/bushes_tif/batched_tif"
+    tifs_dir = "/home/amit/Desktop/task_76_shrubs_integration/instance_segmentation_detectron2/bushes_tif/batched_tif"
     save_dir = "/home/amit/Desktop/task_76_shrubs_integration/instance_segmentation_detectron2/z1"
     image_size = 512
     json_path = "/home/amit/Desktop/task_76_shrubs_integration/instance_segmentation_detectron2/bushes_test.json"
@@ -80,6 +80,6 @@ if __name__ == "__main__":
     predictor_tree = get_predictor(config_path, weight_path_tree, threshold_roi_head, threshold_retinanet)
     
 
-    inference_visualization(save_dir, json_path, tifs_path, predictor_vegetation, predictor_tree, image_size, buffer_percentage, mask_combine_threshold, mask_union_threshold, remove_threshold)
+    inference_visualization(save_dir, tifs_dir, json_path, predictor_vegetation, predictor_tree, image_size, buffer_percentage, mask_combine_threshold, mask_union_threshold, remove_threshold)
 
    

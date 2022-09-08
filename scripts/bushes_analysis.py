@@ -14,9 +14,9 @@ def result_analysis( SaveDir, JsonPath, TifPath, predictor_remove, predictor_det
     mask_iou = 0 
     total_area = 0 
 
-    create_folder(os.path.join(SaveDir, "tmp_trees"))
-    create_folder(os.path.join(SaveDir, "tmp_greenery"))
-    create_folder(os.path.join(SaveDir, "tmp_combined"))
+    create_folder(os.path.join(SaveDir, "trees"))
+    create_folder(os.path.join(SaveDir, "vegetation"))
+    create_folder(os.path.join(SaveDir, "bushes"))
 
 
     for image in image_list(JsonPath): 
@@ -28,16 +28,16 @@ def result_analysis( SaveDir, JsonPath, TifPath, predictor_remove, predictor_det
         act_count += len(act_class)
         img = cv2.imread(os.path.join(TifPath, image))
         
-        boxes_list_trees = get_mask_and_bbox_batching(img, Image_Size, predictor_remove, buffer_percentage, os.path.join(SaveDir, "tmp_trees"))
-        boxes_list_greenery = get_mask_and_bbox_batching(img, Image_Size, predictor_detect, buffer_percentage, os.path.join(SaveDir, "tmp_greenery"))
+        boxes_list_trees = get_mask_and_bbox_batching(img, Image_Size, predictor_remove, buffer_percentage, os.path.join(SaveDir, "trees"))
+        boxes_list_greenery = get_mask_and_bbox_batching(img, Image_Size, predictor_detect, buffer_percentage, os.path.join(SaveDir, "vegetation"))
        
-        get_combined_mask(boxes_list_trees, mask_combine_threshold, mask_union_threshold, os.path.join(SaveDir, "tmp_trees"))
-        get_combined_mask(boxes_list_greenery, mask_combine_threshold, mask_union_threshold, os.path.join(SaveDir, "tmp_greenery"))
+        get_combined_mask(boxes_list_trees, mask_combine_threshold, mask_union_threshold, os.path.join(SaveDir, "trees"))
+        get_combined_mask(boxes_list_greenery, mask_combine_threshold, mask_union_threshold, os.path.join(SaveDir, "vegetation"))
      
 
-        remove_overlapping(os.path.join(SaveDir, "tmp_greenery"), os.path.join(SaveDir, "tmp_trees"), remove_threshold, os.path.join(SaveDir, "tmp_combined"))
+        remove_overlapping(os.path.join(SaveDir, "vegetation"), os.path.join(SaveDir, "trees"), remove_threshold, os.path.join(SaveDir, "bushes"))
         
-        correct_count, iou, area = get_iou(act_mask, os.path.join(SaveDir, "tmp_combined"), iou_threshold)
+        correct_count, iou, area = get_iou(act_mask, os.path.join(SaveDir, "bushes"), iou_threshold)
         
         pred_count += correct_count
         mask_iou += iou

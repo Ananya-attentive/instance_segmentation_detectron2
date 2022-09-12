@@ -427,7 +427,7 @@ def rotate(input_path, output_path, angle):
     processing.run("native:affinetransform", {'INPUT':input_path,'DELTA_X':0,'DELTA_Y':0,'DELTA_Z':0,'DELTA_M':0,'SCALE_X':1,'SCALE_Y':1,'SCALE_Z':1,'SCALE_M':1,'ROTATION_Z':angle,'OUTPUT':output_path})
 
 
-def get_mask_and_bbox_after_batching(img, image_size, predictor, buffer_percentage, folder_path):
+def get_mask_and_bbox_after_batching(img, image_size, predictor, buffer_percentage, output_dir, layer):
 
     imgwidth=img.shape[0]
     imgheight=img.shape[1]
@@ -439,10 +439,7 @@ def get_mask_and_bbox_after_batching(img, image_size, predictor, buffer_percenta
     batched_image_heigth = imgheight//split_verticle
 
     boxes_list = []
-    geometries = []
-    mask_ids = []
-    mask_id = 0
-    
+    geometries = []    
 
     for i in range(split_verticle):
         for j in range(split_horizontal):
@@ -483,24 +480,25 @@ def get_mask_and_bbox_after_batching(img, image_size, predictor, buffer_percenta
                     polygon.append((points[0][0], points[0][1]))
             
                 geometry = Polygon(polygon).buffer(0)
-                
                 geometries.append(geometry)
-                mask_ids.append(mask_id)
-            
-                mask_id += 1
+                
     
     
-    gdf = gpd.GeoDataFrame()
-    gdf['geometry'] = geometries
-    gdf['mask_id'] = mask_ids
-    out_path = os.path.join(folder_path, "mask_original_non_aligned.geojson")
-    gdf.to_file(out_path, driver='GeoJSON')
+    #incorrect alignment due to polygonization of masks
+    mask_unaligned_gdf = gpd.GeoDataFrame()
+    mask_unaligned_gdf['geometry'] = geometries
+    mask_unaligned_gdf['mask_id'] = [i for i in range(mask_unaligned_gdf.shape[0])]
+    mask_unaligned_gdf.to_file(os.path.join(output_dir, f'{layer}_original_non_aligned.geojson'), driver='GeoJSON')
     
-    gdf['geometry'] = gdf['geometry'].apply(lambda x: shapely.affinity.scale(x, yfact = -1, origin = (1, 0)))
-    gdf.to_file(os.path.join(folder_path, "mask_original.geojson"), driver='GeoJSON')
+    #horizontally flipped polygons to correct the alignment
+    mask_original_gdf = gpd.GeoDataFrame()
+    mask_original_gdf['geometry'] = mask_unaligned_gdf['geometry'].apply(lambda x: shapely.affinity.scale(x, yfact = -1, origin = (1, 0)))
+    mask_original_gdf['mask_id'] = [i for i in range(mask_original_gdf.shape[0])]
+    mask_original_gdf.to_file(os.path.join(output_dir, f'{layer}_original.geojson'), driver='GeoJSON')
     
     return boxes_list
 
+    
     
 def save_image(img, folder_path, savePath):
 

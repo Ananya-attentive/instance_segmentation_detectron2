@@ -25,7 +25,7 @@ def inference_visualization(output_dir, tifs_dir, json_path, predictor_vegetatio
         image = "18.tif"
         img = cv2.imread(os.path.join(tifs_dir, image))
         
-        bbox_list_vegetation = get_mask_and_bbox_after_batching(img, image_size, predictor_vegetation, buffer_percentage, os.path.join(output_dir, "vegetation"))
+        bbox_list_vegetation = get_mask_and_bbox_after_batching(img, image_size, predictor_vegetation, buffer_percentage, output_dir, "vegetation")
         bbox_list_trees = get_mask_and_bbox_after_batching(img, image_size, predictor_tree, buffer_percentage, os.path.join(output_dir, "trees"))
         
         get_combined_mask(bbox_list_vegetation, mask_combine_threshold, mask_union_threshold, os.path.join(output_dir, "vegetation"))

@@ -376,15 +376,17 @@ def combine_overlapping_masks(mask_gdf, iou_threshold):
     return combined_mask_gdf
 
 
-def get_combined_mask(boxes_list, mask_combine_threshold, mask_union_threshold, folder_path):
+def get_combined_mask(boxes_list, mask_combine_threshold, mask_union_threshold, output_dir, layer):
    
-    mask_original = gpd.read_file(os.path.join(folder_path, "mask_original.geojson"))
+
+   
+    mask_original = gpd.read_file(os.path.join(output_dir, f'{layer}_original.geojson'))
     
     combined_mask_1 = combine_overlapping_masks(mask_original, mask_union_threshold)
-    combined_mask_1.to_file(os.path.join(folder_path, "mask_combined_1.geojson"), driver='GeoJSON')
+    combined_mask_1.to_file(os.path.join(output_dir, f'{layer}_combined_1.geojson'), driver='GeoJSON')
     
     combined_mask_2 = combine_overlapping_masks(combined_mask_1, mask_union_threshold)
-    combined_mask_2.to_file(os.path.join(folder_path, "mask_combined_2.geojson"), driver='GeoJSON')
+    combined_mask_2.to_file(os.path.join(output_dir, f'{layer}_combined_2.geojson'), driver='GeoJSON')
     
     
 
@@ -540,33 +542,37 @@ def save_image(img, folder_path, savePath):
     cv2.imwrite(savePath, img)
   
 
-def check_overlapping(mask, mask_overlapping_path, remove_threshold):
-    final_mask_gdf = gpd.read_file(os.path.join(mask_overlapping_path, "mask_combined_2.geojson"))
+def check_overlap(vegetation_mask, trees_mask_list, iou_threshold):
 
-    for final_mask in list(final_mask_gdf['geometry']):
-        i = final_mask.intersection(mask).area
-        u = final_mask.union(mask).area
+    for tree_mask in trees_mask_list:
+        i = vegetation_mask.intersection(tree_mask).area
+        u = vegetation_mask.union(tree_mask).area
         
-        if  u!=0 and i/u > remove_threshold :
-            return False
+        if  u!=0 and i/u > iou_threshold :
+            return True
         
-    return True
+    return False
 
 
 
-def remove_overlapping(mask_detect_path, mask_remove_path, final_mask_path, remove_threshold):
+def remove_overlapping(vegetation_path, trees_path, bushes_path, remove_threshold):
 
-    mask_combined_gdf = gpd.read_file(os.path.join(mask_detect_path, "mask_combined_2.geojson"))
+    vegetation_gdf = gpd.read_file(vegetation_path)
+    vegetation_masks = list(vegetation_gdf['geometry'])
+    
+    trees_gdf = gpd.read_file(trees_path)
+    trees_masks = list(trees_gdf['geometry'])
+    
     geometries = []
     
-    for mask in list(mask_combined_gdf['geometry']):        
-        if check_overlapping(mask, mask_remove_path, remove_threshold):
-            geometries.append(mask)
+    for vegetation_mask in vegetation_masks:        
+        if check_overlap(vegetation_mask, trees_masks, remove_threshold) == False:
+            geometries.append(vegetation_mask)
             
     mask_final = gpd.GeoDataFrame()
     mask_final['geometry'] = geometries
     mask_final['mask_id']=  [i for i in range(mask_final.shape[0])]
-    mask_final.to_file(os.path.join(final_mask_path, f'mask_final.geojson'), driver='GeoJSON')
+    mask_final.to_file(bushes_path, driver='GeoJSON')
     return mask_final
 
 

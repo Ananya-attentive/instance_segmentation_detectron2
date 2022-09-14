@@ -1,7 +1,7 @@
-output_dir: "/home/amit/Desktop/task_76_shrubs_integration/instance_segmentation_detectron2_new/z1"
-model_config: "/home/amit/Desktop/task_76_shrubs_integration/instance_segmentation_detectron2_new/configs/RCNN-FPN.yaml"
-checkpoint_vegetation : "/home/amit/Desktop/task_76_shrubs_integration/instance_segmentation_detectron2_new/checkpoints/vegetation.pth"
-checkpoint_tree : "/home/amit/Desktop/task_76_shrubs_integration/instance_segmentation_detectron2_new/checkpoints/tree.pth"
+output_dir: "/home/amit/Desktop/task_76_shrubs_integration/instance_segmentation_detectron2/z1"
+model_config: "/home/amit/Desktop/task_76_shrubs_integration/instance_segmentation_detectron2/configs/RCNN-FPN.yaml"
+checkpoint_vegetation : "/home/amit/Desktop/task_76_shrubs_integration/instance_segmentation_detectron2/checkpoints/vegetation.pth"
+checkpoint_tree : "/home/amit/Desktop/task_76_shrubs_integration/instance_segmentation_detectron2/checkpoints/tree.pth"
 
 image_size: 512
 buffer_percentage: 12.5

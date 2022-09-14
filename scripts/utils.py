@@ -14,18 +14,7 @@ import shapely
 import torch 
 import geopandas as gpd
 from shapely.geometry import Polygon, mapping
-
 from detectron2.structures.masks import polygons_to_bitmask
-
-import sys
-from qgis.core import QgsApplication
-from qgis.analysis import QgsNativeAlgorithms
-QgsApplication.setPrefixPath('/usr', True) #for avoiding "Application path not initialized"
-sys.path.append('/usr/share/qgis/python/plugins')
-import processing
-QgsApplication.processingRegistry().addProvider(QgsNativeAlgorithms())
-
-
 
 
 def register_data(JsonPath, TifPath, RegisterDataName):
@@ -376,17 +365,14 @@ def combine_overlapping_masks(mask_gdf, iou_threshold):
     return combined_mask_gdf
 
 
-def get_combined_mask(boxes_list, mask_combine_threshold, mask_union_threshold, output_dir, layer):
-   
-
-   
+def get_combined_mask(boxes_list, mask_combine_threshold, mask_union_threshold, output_dir, layer):   
     mask_original = gpd.read_file(os.path.join(output_dir, f'{layer}_original.geojson'))
     
     combined_mask_1 = combine_overlapping_masks(mask_original, mask_union_threshold)
-    combined_mask_1.to_file(os.path.join(output_dir, f'{layer}_combined_1.geojson'), driver='GeoJSON')
+    combined_mask_1.to_file(os.path.join(output_dir, f'{layer}_combined.geojson'), driver='GeoJSON')
     
     combined_mask_2 = combine_overlapping_masks(combined_mask_1, mask_union_threshold)
-    combined_mask_2.to_file(os.path.join(output_dir, f'{layer}_combined_2.geojson'), driver='GeoJSON')
+    combined_mask_2.to_file(os.path.join(output_dir, f'{layer}_final.geojson'), driver='GeoJSON')
     
     
 
@@ -420,13 +406,6 @@ def batch_images(img, buffer_percentage):
             images.append([batched_image, [min_bound_y, min_bound_x], [i,j]])
     
     return images
-
-
-def swap_xy(input_path, output_path):
-    processing.run("native:swapxy", {'INPUT':input_path,'OUTPUT':output_path})
-   
-def rotate(input_path, output_path, angle):   
-    processing.run("native:affinetransform", {'INPUT':input_path,'DELTA_X':0,'DELTA_Y':0,'DELTA_Z':0,'DELTA_M':0,'SCALE_X':1,'SCALE_Y':1,'SCALE_Z':1,'SCALE_M':1,'ROTATION_Z':angle,'OUTPUT':output_path})
 
 
 def get_mask_and_bbox_after_batching(img, image_size, predictor, buffer_percentage, output_dir, layer):
@@ -555,7 +534,7 @@ def check_overlap(vegetation_mask, trees_mask_list, iou_threshold):
 
 
 
-def remove_overlapping(vegetation_path, trees_path, bushes_path, remove_threshold):
+def remove_overlapping(vegetation_path, trees_path, shrubs_path, remove_threshold):
 
     vegetation_gdf = gpd.read_file(vegetation_path)
     vegetation_masks = list(vegetation_gdf['geometry'])
@@ -572,8 +551,14 @@ def remove_overlapping(vegetation_path, trees_path, bushes_path, remove_threshol
     mask_final = gpd.GeoDataFrame()
     mask_final['geometry'] = geometries
     mask_final['mask_id']=  [i for i in range(mask_final.shape[0])]
-    mask_final.to_file(bushes_path, driver='GeoJSON')
+    mask_final.to_file(shrubs_path, driver='GeoJSON')
     return mask_final
+
+
+def get_centroids(input_geojson_path, output_geojson_path):
+    gdf = gpd.read_file(input_geojson_path)
+    gdf['geometry'] = gdf['geometry'].centroid
+    gdf.to_file(output_geojson_path, driver='GeoJSON')
 
 
 def get_iou(act_mask_list, pred_mask_path, iou_threshold):
